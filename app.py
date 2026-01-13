@@ -217,9 +217,46 @@ def result(tracking_id):
         return "Data not available yet", 404
 
     return render_template_string("""
-        <h3>Bank Statement JSON</h3>
-        <pre>{{ data }}</pre>
-    """, data=jsonify(ctx["fi_json"]).get_data(as_text=True))
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Bank Statement JSON</title>
+        <style>
+            body {
+            font-family: monospace;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+        pre {
+            background: #1e1e1e;
+            color: #dcdcdc;
+            padding: 20px;
+            border-radius: 6px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-size: 14px;
+        }
+        h3 {
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+
+<h3>Bank Statement JSON (Postman Format)</h3>
+
+<pre id="json"></pre>
+
+<script>
+    const data = {{ data | tojson }};
+    document.getElementById("json").textContent =
+        JSON.stringify(data, null, 2);
+</script>
+
+</body>
+</html>
+""", data=ctx["fi_json"])
 
 # ================= RUN =================
 if __name__ == "__main__":
