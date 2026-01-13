@@ -19,7 +19,22 @@ TEMPLATE_CODE = "UW001"
 FIP_LIST = [
     "HDFC-UAT-FIP",
     "ICICI-UAT-FIP",
-    "SBI-UAT-FIP"
+    "SBI-UAT-FIP",
+    "IBFIP",
+    "UBI-FIP",
+    "YESB-UAT-FIP",
+    "setu-fip",
+    "fip@finbank",
+    "PNB-UAT-FIP",
+    "AUBank-FIP",
+    "CRIF-CONNECT-FIP-UAT-ALT",
+    "BARB0KIMXXX",
+    "dhanagarbank",
+    "CRIF-CONNECT-FIP-UAT"
+    "finsharebank",
+    "sirius@finarkein"
+    "FDRLFIP",
+    "ACME-FIP"
 ]
 
 # In-memory store (POC only)
