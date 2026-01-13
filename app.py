@@ -105,16 +105,20 @@ def callback():
     print("\n===== CALLBACK HIT =====")
     print("Method:", request.method)
 
-    # Case 1: CRIF hits callback via browser (GET)
+    # --- CASE 1: Browser redirect (GET) ---
     if request.method == "GET":
-        print("GET params:", request.args)
+        tracking_id = request.args.get("trackingId")
+
+        if tracking_id:
+            print("Redirecting user to statement page:", tracking_id)
+            return redirect(f"/statement/{tracking_id}")
 
         return """
         <h3>Consent approved successfully.</h3>
-        <p>You may close this window and return to the application.</p>
+        <p>You may now return to the application.</p>
         """
 
-    # Case 2: CRIF sends actual data (POST)
+    # --- CASE 2: CRIF server callback (POST) ---
     data = request.get_json(force=True, silent=True)
     print("POST body:", data)
 
@@ -123,20 +127,37 @@ def callback():
 
     tracking_id = data.get("trackingId")
 
+    # Store required values safely
+    STATE.setdefault(tracking_id, {})
     STATE[tracking_id]["sessionId"] = data.get("sessionId")
     STATE[tracking_id]["accountId"] = data.get("accounts", [{}])[0].get("accountId")
 
-    print("Callback processed successfully for:", tracking_id)
+    print("Callback data saved for:", tracking_id)
 
     return "OK", 200
+
 
 
 # ================= FETCH JSON =================
 @app.route("/statement/<tracking_id>")
 def fetch_statement(tracking_id):
     ctx = STATE.get(tracking_id)
+
     if not ctx:
-        return "Invalid trackingId", 404
+        return jsonify({
+            "status": "PENDING",
+            "message": "Consent data not available yet. Please refresh in a few seconds."
+        }), 202
+
+    required = ["token", "referenceId", "sessionId", "accountId"]
+    missing = [k for k in required if k not in ctx]
+
+    if missing:
+        return jsonify({
+            "status": "PENDING",
+            "message": "Waiting for consent completion",
+            "missing": missing
+        }), 202
 
     print("\n===== FETCH JSON =====")
     print("Tracking ID:", tracking_id)
@@ -156,6 +177,7 @@ def fetch_statement(tracking_id):
     print("Response:", resp.text)
 
     return jsonify(resp.json())
+
 
 # ================= RUN =================
 if __name__ == "__main__":
