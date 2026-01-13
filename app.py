@@ -37,7 +37,7 @@ FIP_LIST = [
     "sirius@finarkein"
     "FDRLFIP",
     "ACME-FIP"
-
+]
 # In-memory store (OK for UAT / POC)
 STATE = {}
 
