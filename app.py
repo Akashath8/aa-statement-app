@@ -100,22 +100,36 @@ def start():
     return "Consent initiation failed for all FIPs. Check server logs.", 400
 
 # ================= CALLBACK =================
-@app.route("/callback", methods=["POST"])
+@app.route("/callback", methods=["GET", "POST"])
 def callback():
-    data = request.json
+    print("\n===== CALLBACK HIT =====")
+    print("Method:", request.method)
 
-    print("\n===== CALLBACK RECEIVED =====")
-    print(data)
+    # Case 1: CRIF hits callback via browser (GET)
+    if request.method == "GET":
+        print("GET params:", request.args)
 
-    tracking_id = data["trackingId"]
+        return """
+        <h3>Consent approved successfully.</h3>
+        <p>You may close this window and return to the application.</p>
+        """
 
-    STATE[tracking_id]["sessionId"] = data["sessionId"]
-    STATE[tracking_id]["accountId"] = data["accounts"][0]["accountId"]
+    # Case 2: CRIF sends actual data (POST)
+    data = request.get_json(force=True, silent=True)
+    print("POST body:", data)
 
-    return """
-        <h3>Consent completed successfully.</h3>
-        <p>You may close this window.</p>
-    """
+    if not data:
+        return "Callback received without payload", 200
+
+    tracking_id = data.get("trackingId")
+
+    STATE[tracking_id]["sessionId"] = data.get("sessionId")
+    STATE[tracking_id]["accountId"] = data.get("accounts", [{}])[0].get("accountId")
+
+    print("Callback processed successfully for:", tracking_id)
+
+    return "OK", 200
+
 
 # ================= FETCH JSON =================
 @app.route("/statement/<tracking_id>")
