@@ -1,7 +1,9 @@
+import sys
 import os
 import requests
 from flask import Flask, request, jsonify, redirect, render_template_string
 from dotenv import load_dotenv
+print("🔥 APP.PY STARTED ON RENDER 🔥", flush=True)
 
 load_dotenv()
 
@@ -66,9 +68,9 @@ def start():
     mobile = request.form["mobile"]
     tracking_id = f"track-{mobile}"
 
-    print("\n===== START CONSENT =====")
-    print("Mobile:", mobile)
-    print("Tracking ID:", tracking_id)
+    print("\n===== START CONSENT =====", flush=True)
+    print("Mobile:", mobile, flush=True)
+    print("Tracking ID:", tracking_id, flush=True)
 
     try:
         token = get_token()
