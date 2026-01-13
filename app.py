@@ -66,7 +66,16 @@ def start():
     mobile = request.form["mobile"]
     tracking_id = f"track-{mobile}"
 
-    token = get_token()
+    print("\n===== START CONSENT =====")
+    print("Mobile:", mobile)
+    print("Tracking ID:", tracking_id)
+
+    try:
+        token = get_token()
+        print("Token fetched successfully")
+    except Exception as e:
+        print("TOKEN ERROR:", str(e))
+        return "Token generation failed", 500
 
     STATE[tracking_id] = {
         "mobile": mobile,
@@ -82,25 +91,38 @@ def start():
             "fipId": [fip]
         }
 
+        print("\n--- TRYING FIP ---")
+        print("FIP:", fip)
+        print("Payload:", payload)
+
         resp = requests.post(
             f"{BASE_URL}/fiu-ws/consent/initiate",
             json=payload,
             headers={"Authorization": f"Bearer {token}"}
         )
 
+        print("Status Code:", resp.status_code)
+        print("Response Body:", resp.text)
+
         if resp.status_code == 200:
             data = resp.json()["data"]
-            STATE[tracking_id]["referenceId"] = data["consents"][0]["referenceId"]
+            reference_id = data["consents"][0]["referenceId"]
+
+            STATE[tracking_id]["referenceId"] = reference_id
             STATE[tracking_id]["fipId"] = fip
-            # 🔥 ADD THESE LOGS
-            print("===== CONSENT INITIATED =====")
+
+            print("\n===== CONSENT INITIATED SUCCESS =====")
             print("Tracking ID :", tracking_id)
-            print("Reference ID:", STATE[tracking_id]["referenceId"])
+            print("Reference ID:", reference_id)
             print("FIP ID      :", fip)
-            print("============================")
+            print("Redirecting to CRIF...")
+            print("===================================")
+
             return redirect(data["redirectionUrl"])
 
+    print("\n❌ CONSENT FAILED FOR ALL FIPs")
     return "Consent initiation failed for all FIPs", 400
+
 
 # ================= CALLBACK =================
 @app.route("/callback", methods=["GET", "POST"])
