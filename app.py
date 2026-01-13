@@ -1,25 +1,21 @@
-import sys
 import os
 import requests
-from flask import Flask, request, jsonify, redirect, render_template_string
+from flask import Flask, request, redirect, jsonify, render_template_string
 from dotenv import load_dotenv
-print("🔥 APP.PY STARTED ON RENDER 🔥", flush=True)
 
 load_dotenv()
 
 app = Flask(__name__)
 
-# ================= CONFIG =================
-BASE_URL = os.getenv("CRIF_BASE_URL")
+BASE_URL = "https://flex-uat.crif.com/orchestrator"
 USERNAME = os.getenv("CRIF_USERNAME")
 PASSWORD = os.getenv("CRIF_PASSWORD")
 CALLBACK_BASE = os.getenv("CALLBACK_BASE_URL")
 
 TEMPLATE_CODE = "UW001"
 
-# Static FIP list (update only if CRIF gives different IDs)
 FIP_LIST = [
-    "HDFC-UAT-FIP",
+   "HDFC-UAT-FIP",
     "ICICI-UAT-FIP",
     "SBI-UAT-FIP",
     "IBFIP",
@@ -39,10 +35,9 @@ FIP_LIST = [
     "ACME-FIP"
 ]
 
-# In-memory store (POC only)
-STATE = {}
+STATE = {}  # in-memory store
 
-# ================= UTIL =================
+# ------------------------------------------------
 def get_token():
     resp = requests.post(
         f"{BASE_URL}/public/api-user/token",
@@ -51,37 +46,28 @@ def get_token():
     resp.raise_for_status()
     return resp.json()["access_token"]
 
-# ================= UI =================
+# ------------------------------------------------
 @app.route("/")
 def home():
-    return render_template_string("""
-        <h2>Fetch Bank Statement</h2>
-        <form method="post" action="/start">
-            <input name="mobile" placeholder="Mobile Number" required />
-            <button type="submit">Continue</button>
-        </form>
-    """)
+    return """
+    <h2>Fetch Bank Statement</h2>
+    <form method="post" action="/start">
+        <input name="mobile" placeholder="Mobile Number" required />
+        <button type="submit">Continue</button>
+    </form>
+    """
 
-# ================= START CONSENT =================
+# ------------------------------------------------
 @app.route("/start", methods=["POST"])
 def start():
     mobile = request.form["mobile"]
-    tracking_id = f"track-{mobile}"
+    tracking_id = f"consent-{mobile}"
 
-    print("\n===== START CONSENT =====", flush=True)
-    print("Mobile:", mobile, flush=True)
-    print("Tracking ID:", tracking_id, flush=True)
-
-    try:
-        token = get_token()
-        print("Token fetched successfully")
-    except Exception as e:
-        print("TOKEN ERROR:", str(e))
-        return "Token generation failed", 500
+    token = get_token()
 
     STATE[tracking_id] = {
-        "mobile": mobile,
-        "token": token
+        "token": token,
+        "mobile": mobile
     }
 
     for fip in FIP_LIST:
@@ -89,13 +75,9 @@ def start():
             "templateCode": TEMPLATE_CODE,
             "trackingId": tracking_id,
             "phoneNumber": mobile,
-            "redirectionBackUrl": f"{CALLBACK_BASE}/callback",
+            "redirectionBackUrl": f"{CALLBACK_BASE}/callback?trackingId={tracking_id}",
             "fipId": [fip]
         }
-
-        print("\n--- TRYING FIP ---")
-        print("FIP:", fip)
-        print("Payload:", payload)
 
         resp = requests.post(
             f"{BASE_URL}/fiu-ws/consent/initiate",
@@ -103,128 +85,74 @@ def start():
             headers={"Authorization": f"Bearer {token}"}
         )
 
-        print("Status Code:", resp.status_code)
-        print("Response Body:", resp.text)
-
         if resp.status_code == 200:
             data = resp.json()["data"]
             reference_id = data["consents"][0]["referenceId"]
 
             STATE[tracking_id]["referenceId"] = reference_id
-            STATE[tracking_id]["fipId"] = fip
 
-            print("\n===== CONSENT INITIATED SUCCESS =====")
-            print("Tracking ID :", tracking_id)
-            print("Reference ID:", reference_id)
-            print("FIP ID      :", fip)
-            print("Redirecting to CRIF...")
-            print("===================================")
+            print("Consent initiated:", tracking_id, reference_id, flush=True)
 
             return redirect(data["redirectionUrl"])
 
-    print("\n❌ CONSENT FAILED FOR ALL FIPs")
-    return "Consent initiation failed for all FIPs", 400
+    return "Consent initiation failed", 400
 
-
-# ================= CALLBACK =================
-@app.route("/callback", methods=["GET", "POST"])
+# ------------------------------------------------
+@app.route("/callback", methods=["GET"])
 def callback():
-    print("\n===== CALLBACK HIT =====")
-    print("Method:", request.method)
+    tracking_id = request.args.get("trackingId")
 
-    # ---- Browser redirect (GET) ----
-    if request.method == "GET":
-        tracking_id = request.args.get("trackingId")
-        if tracking_id:
-            return redirect(f"/wait/{tracking_id}")
+    if not tracking_id or tracking_id not in STATE:
+        return "Invalid callback", 400
 
-        return """
-        <h3>Consent approved successfully.</h3>
-        <p>You may close this window.</p>
-        """
+    print("Consent approved for:", tracking_id, flush=True)
 
-    # ---- CRIF server callback (POST) ----
-    data = request.get_json(force=True, silent=True)
-    print("POST payload:", data)
+    # 🔥 Run fetch JSON immediately
+    fetch_fi_json(tracking_id)
 
-    if not data:
-        return "OK", 200
+    return redirect(f"/result/{tracking_id}")
 
-    tracking_id = data.get("trackingId")
-    STATE.setdefault(tracking_id, {})
+# ------------------------------------------------
+def fetch_fi_json(tracking_id):
+    ctx = STATE[tracking_id]
 
-    STATE[tracking_id]["sessionId"] = data.get("sessionId")
-    STATE[tracking_id]["accountId"] = data.get("accounts", [{}])[0].get("accountId")
-
-    print("Callback stored for:", tracking_id)
-    return "OK", 200
-
-# ================= WAIT PAGE (AUTO-POLL) =================
-@app.route("/wait/<tracking_id>")
-def wait_page(tracking_id):
-    return f"""
-    <html>
-    <head>
-        <title>Fetching Statement</title>
-        <script>
-            async function poll() {{
-                const res = await fetch("/statement/{tracking_id}");
-                const data = await res.json();
-
-                if (data.status === "PENDING") {{
-                    document.getElementById("status").innerText = data.message;
-                }} else {{
-                    document.body.innerHTML =
-                        "<pre>" + JSON.stringify(data, null, 2) + "</pre>";
-                }}
-            }}
-
-            setInterval(poll, 3000);
-            window.onload = poll;
-        </script>
-    </head>
-    <body>
-        <h3>Fetching your bank statement…</h3>
-        <p id="status">Please wait</p>
-    </body>
-    </html>
-    """
-
-# ================= FETCH STATEMENT =================
-@app.route("/statement/<tracking_id>")
-def fetch_statement(tracking_id):
-    ctx = STATE.get(tracking_id)
-
-    if not ctx:
-        return jsonify({
-            "status": "PENDING",
-            "message": "Consent data not available yet. Please wait."
-        }), 202
-
-    required = ["token", "referenceId", "sessionId", "accountId"]
-    missing = [k for k in required if k not in ctx]
-
-    if missing:
-        return jsonify({
-            "status": "PENDING",
-            "message": "Waiting for consent completion",
-            "missing": missing
-        }), 202
+    payload = {
+        "trackingId": tracking_id,
+        "referenceId": ctx["referenceId"],
+        "sessionId": "",
+        "accountId": ""
+    }
 
     resp = requests.post(
         f"{BASE_URL}/fiu-ws/fetch/JSON",
-        json={
-            "trackingId": tracking_id,
-            "referenceId": ctx["referenceId"],
-            "sessionId": ctx["sessionId"],
-            "accountId": ctx["accountId"]
+        headers={
+            "Authorization": f"Bearer {ctx['token']}",
+            "Content-Type": "application/json"
         },
-        headers={"Authorization": f"Bearer {ctx['token']}"}
+        json=payload
     )
 
-    return jsonify(resp.json())
+    print("Fetch JSON response:", resp.text, flush=True)
 
-# ================= RUN (RENDER COMPATIBLE) =================
+    try:
+        STATE[tracking_id]["fi_json"] = resp.json()
+    except Exception:
+        STATE[tracking_id]["fi_json"] = {"error": resp.text}
+
+# ------------------------------------------------
+@app.route("/result/<tracking_id>")
+def result(tracking_id):
+    ctx = STATE.get(tracking_id)
+
+    if not ctx or "fi_json" not in ctx:
+        return "Data not available", 404
+
+    return render_template_string("""
+        <h3>Bank Statement JSON</h3>
+        <pre>{{ data }}</pre>
+    """, data=jsonify(ctx["fi_json"]).get_data(as_text=True))
+
+# ------------------------------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
