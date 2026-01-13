@@ -1,3 +1,4 @@
+import time
 import os
 import requests
 from flask import Flask, request, redirect, render_template_string, jsonify
@@ -80,24 +81,36 @@ def get_consent_status(tracking_id):
 def fetch_fi_json(tracking_id):
     ctx = STATE[tracking_id]
 
-    # 1️⃣ Get consent status (THIS IS THE KEY STEP)
-    status_data = get_consent_status(tracking_id)
+    max_retries = 10       # total ~20 seconds
+    wait_seconds = 2
+
+    status_data = None
+
+    for attempt in range(max_retries):
+        print(f"STATUS CHECK ATTEMPT {attempt+1}", flush=True)
+
+        status_data = get_consent_status(tracking_id)
+
+        if status_data and status_data.get("status") == "COMPLETED":
+            break
+
+        time.sleep(wait_seconds)
 
     if not status_data:
         ctx["fi_json"] = {
             "status": "ERROR",
-            "message": "Consent status not available"
+            "message": "Consent status not available after retries"
         }
         return
 
     if status_data.get("status") != "COMPLETED":
         ctx["fi_json"] = {
-            "status": "PENDING",
-            "message": f"Consent status: {status_data.get('status')}"
+            "status": "ERROR",
+            "message": f"Consent status final state: {status_data.get('status')}"
         }
         return
 
-    # 2️⃣ Extract sessionId & accountId
+    # ✅ Extract sessionId & accountId
     session_id = status_data.get("sessionId")
     accounts = status_data.get("accounts", [])
 
@@ -110,7 +123,6 @@ def fetch_fi_json(tracking_id):
 
     account_id = accounts[0]["accountId"]
 
-    # 3️⃣ Fetch JSON (SAME AS POSTMAN)
     payload = {
         "trackingId": tracking_id,
         "referenceId": ctx["referenceId"],
@@ -132,6 +144,7 @@ def fetch_fi_json(tracking_id):
     print("FETCH JSON RESPONSE:", resp.text, flush=True)
 
     ctx["fi_json"] = resp.json()
+
 
 # ================= UI =================
 @app.route("/")
